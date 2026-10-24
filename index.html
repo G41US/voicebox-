@@ -54,6 +54,9 @@ ol{margin:0;padding-left:20px;display:grid;gap:6px}
 ol li{max-width:70ch}
 code{font:500 13px var(--mono);color:var(--amber)}
 .note{color:var(--dim);font-size:13px;margin:12px 0 0}
+.field{width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:9px 10px;font:14px var(--mono)}
+#said{font:500 13px var(--mono);color:var(--dim);flex:1;min-width:200px}
+#said.err{color:var(--live)}
 @media (max-width:520px){.strip{grid-template-columns:1fr;justify-items:center}.routing{width:100%}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -96,6 +99,24 @@ code{font:500 13px var(--mono);color:var(--amber)}
       <div><label for="tone">Tone <output id="toneV">0 dB</output></label><input type="range" id="tone" min="-12" max="12" step="1" value="0"></div>
       <div><label for="vol">Output level <output id="volV">100%</output></label><input type="range" id="vol" min="0" max="200" step="5" value="100"></div>
     </div>
+  </section>
+
+  <section aria-label="Her voice and accent">
+    <h2>Her voice + her accent (about 1 second delay)</h2>
+    <div class="fine">
+      <div><label for="elKey">ElevenLabs API key</label><input id="elKey" class="field" type="password" autocomplete="off" spellcheck="false"></div>
+      <div><label for="elVoice">Her voice ID</label><input id="elVoice" class="field" autocomplete="off" spellcheck="false"></div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button id="speak" class="pad" type="button" aria-pressed="false"><b>Start</b><small>Talk normally, she says your words</small></button>
+      <div id="said" role="status">Off</div>
+    </div>
+    <ol class="note">
+      <li>On elevenlabs.io: Voices → Add voice → Instant Voice Clone, upload her recording, then copy its Voice ID here.</li>
+      <li>API key: elevenlabs.io → Developers → API Keys. It is saved only in this browser.</li>
+      <li>Make sure Windows' default microphone is your real mic (not CABLE), and pick <code>CABLE Input</code> under <b>Send changed voice to</b> (press the big Start once to list devices).</li>
+      <li>Starting this turns off the live voice changer, so the call only hears her.</li>
+    </ol>
   </section>
 
   <section aria-label="Setup">
@@ -253,6 +274,7 @@ function meter(){
 }
 
 async function start(){
+  if(rec) stopHer();
   try{
     status('Starting…');
     await build();
@@ -276,17 +298,83 @@ async function stop(){
   if(!$('status').classList.contains('err')) status('Off');
 }
 
+// Her accent: Chrome speech-to-text, then ElevenLabs speaks each finished phrase in her cloned voice.
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const herEl = new Audio();
+let rec = null, queue = Promise.resolve();
+const store = (k, v) => { try{ if(v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); }catch{} };
+function said(t, err){ $('said').textContent = t; $('said').className = err ? 'err' : ''; }
+
+async function herAudio(text){
+  // shortcut: waits for the whole phrase's audio; switch to the /stream endpoint + MediaSource if the delay feels long
+  const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent($('elVoice').value.trim())}?output_format=mp3_22050_32`, {
+    method:'POST',
+    headers:{'xi-api-key':$('elKey').value.trim(), 'Content-Type':'application/json', Accept:'audio/mpeg'},
+    body: JSON.stringify({text, model_id:'eleven_flash_v2_5'}),
+  });
+  if(!r.ok) throw new Error(`ElevenLabs ${r.status}: ${(await r.text()).slice(0,140)}`);
+  return URL.createObjectURL(await r.blob());
+}
+function enqueue(text){
+  const pending = herAudio(text);           // fetch starts now, playback waits its turn
+  pending.catch(()=>{});                    // reported below, in order
+  queue = queue.then(async () => {
+    const url = await pending;
+    herEl.src = url;
+    await new Promise((res, rej) => { herEl.onended = res; herEl.onerror = () => rej(new Error('Could not play her audio')); herEl.play().catch(rej); });
+    URL.revokeObjectURL(url);
+  }).catch(e => said(e.message === 'Failed to fetch' ? 'Could not reach ElevenLabs. Check your internet.' : e.message, true));
+}
+
+async function startHer(){
+  if(!SR) return said('Speech-to-text needs Chrome or Edge on a computer.', true);
+  if(!$('elKey').value.trim() || !$('elVoice').value.trim()) return said('Paste your ElevenLabs API key and her voice ID first.', true);
+  if(ctx) await stop();                     // never send your real voice to the call at the same time
+  try{
+    (await navigator.mediaDevices.getUserMedia({audio:true})).getTracks().forEach(t=>t.stop()); // permission, so device names show
+    await listDevices();
+    const id = $('out').value;
+    if(herEl.setSinkId) await herEl.setSinkId(id === 'default' ? '' : id);
+  }catch(e){ return said('Could not start: '+(e.message||e.name), true); }
+  const r = rec = new SR();
+  r.continuous = true; r.interimResults = true; r.lang = 'en-NG';
+  r.onresult = e => {
+    for(let i=e.resultIndex; i<e.results.length; i++){
+      const t = e.results[i][0].transcript.trim();
+      if(!t) continue;
+      if(e.results[i].isFinal){ said('She says: '+t); enqueue(t); } else said('Hearing: '+t);
+    }
+  };
+  r.onerror = e => {
+    if(e.error === 'language-not-supported') r.lang = 'en-US';
+    else if(e.error !== 'no-speech' && e.error !== 'aborted') said('Speech-to-text: '+e.error, true);
+  };
+  r.onend = () => { if(rec === r) try{ r.start(); }catch{} };  // Chrome stops after a pause; keep listening
+  r.start();
+  $('speak').setAttribute('aria-pressed','true'); $('speak').querySelector('b').textContent = 'Stop';
+  said('Listening… talk normally.');
+}
+function stopHer(){
+  const r = rec; rec = null;
+  if(r) r.stop();
+  herEl.pause();
+  $('speak').setAttribute('aria-pressed','false'); $('speak').querySelector('b').textContent = 'Start';
+  if(!$('said').classList.contains('err')) said('Off');
+}
+['elKey','elVoice'].forEach(id => { $(id).value = store(id) || ''; $(id).onchange = () => store(id, $(id).value.trim()); });
+$('speak').onclick = () => rec ? stopHer() : startHer();
+
 // UI
 PRESETS.forEach(p=>{
   const b = document.createElement('button');
   b.className='pad'; b.type='button'; b.setAttribute('aria-pressed', p===cur);
   b.innerHTML = `<b>${p.name}</b><small>${p.hint}</small>`;
-  b.onclick = ()=>{ cur=p; document.querySelectorAll('.pad').forEach(x=>x.setAttribute('aria-pressed', x===b)); apply(); };
+  b.onclick = ()=>{ cur=p; document.querySelectorAll('#pads .pad').forEach(x=>x.setAttribute('aria-pressed', x===b)); apply(); };
   $('pads').append(b);
 });
 $('power').onclick = ()=> ctx ? stop() : start();
 $('mic').onchange = ()=> ctx && openMic().catch(e=>status(e.message,true));
-$('out').onchange = ()=> ctx && route();
+$('out').onchange = ()=> ctx ? route() : rec && herEl.setSinkId?.($('out').value === 'default' ? '' : $('out').value).catch(e=>said(e.message,true));
 $('monitor').onchange = e => monEl.muted = !e.target.checked;
 [['pitch','pitchV',v=>(v>0?'+':'')+v+' st'],['tone','toneV',v=>(v>0?'+':'')+v+' dB'],['vol','volV',v=>v+'%']].forEach(([i,o,f])=>{
   $(i).oninput = ()=>{ $(o).textContent = f($(i).value); apply(); };
