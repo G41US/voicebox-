@@ -130,9 +130,11 @@ function makeShifter(sr){
   };
 }
 
-// Original presets only — no cloned real-person voices.
+// Effect presets, plus one tuned to a family member's voice with her consent (pitch/tone match, not a clone).
 const PRESETS = [
   {id:'natural', name:'Natural',  hint:'Your own voice', st:0},
+  // measured from her recording: median F0 234 Hz, dark top end; +11.5 st assumes a ~120 Hz male voice, use Pitch to adjust
+  {id:'aunt',    name:'Aunt',     hint:'Her pitch and tone', st:11.5, low:2, high:-4},
   {id:'deep',    name:'Deep',     hint:'Low, heavy voice', st:-4, low:6, high:-3},
   {id:'giant',   name:'Giant',    hint:'Huge and slow', st:-8, low:8, high:-6, verb:.25},
   {id:'bright',  name:'Bright',   hint:'Higher, lighter voice', st:4, low:-4, high:3},
