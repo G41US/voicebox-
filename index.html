@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VoiceBox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* layout: one hardware-style console — power/routing strip, preset pads, fine-tune, setup notes */
+:root{
+  --bg:#12141c; --panel:#1b1e29; --line:#2c3142; --fg:#e7e4dc; --dim:#8d90a0;
+  --amber:#f2a33a; --amber-dim:#5a3f1c; --live:#e5484d; --ok:#4cc38a;
+  --display:"Chakra Petch",ui-sans-serif,system-ui,sans-serif;
+  --body:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--body);
+  padding-block:24px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+main{max-width:860px;margin:0 auto;display:grid;gap:20px}
+h1{font:700 30px/1 var(--display);letter-spacing:.04em;margin:0;text-transform:uppercase}
+h1 span{color:var(--amber)}
+h2{font:700 12px/1 var(--display);letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin:0 0 12px}
+header{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:12px}
+header p{margin:0;color:var(--dim);max-width:46ch}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
+.strip{display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:center}
+#power{font:700 15px var(--display);letter-spacing:.12em;text-transform:uppercase;width:132px;height:132px;border-radius:50%;
+  border:3px solid var(--line);background:radial-gradient(circle at 50% 35%,#272b3a,#151821);color:var(--fg);cursor:pointer}
+#power[aria-pressed="true"]{border-color:var(--live);color:var(--live);box-shadow:0 0 0 6px rgba(229,72,77,.15)}
+#power:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--amber);outline-offset:3px}
+.routing{display:grid;gap:12px;min-width:0}
+label{font:500 12px var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--dim);display:block;margin-bottom:4px}
+select{width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:9px 10px;font:14px var(--body)}
+.row{display:flex;flex-wrap:wrap;gap:16px;align-items:center}
+.meter{flex:1;min-width:160px;height:12px;border-radius:3px;background:repeating-linear-gradient(90deg,var(--amber-dim) 0 6px,transparent 6px 8px);position:relative;overflow:hidden}
+.meter i{position:absolute;inset:0 auto 0 0;width:0;background:repeating-linear-gradient(90deg,var(--amber) 0 6px,transparent 6px 8px)}
+.toggle{display:flex;gap:8px;align-items:center;font-size:14px;color:var(--fg)}
+#status{font:500 13px var(--mono);color:var(--dim)}
+#status.err{color:var(--live)}
+.pads{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.pad{text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px;color:var(--fg);cursor:pointer;display:grid;gap:2px}
+.pad b{font:700 15px var(--display);letter-spacing:.06em;text-transform:uppercase}
+.pad small{color:var(--dim);font-size:12px}
+.pad[aria-pressed="true"]{border-color:var(--amber);background:#241d14}
+.pad[aria-pressed="true"] b{color:var(--amber)}
+.fine{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px}
+input[type=range]{width:100%;accent-color:var(--amber)}
+output{font:500 13px var(--mono);color:var(--amber);float:right}
+ol{margin:0;padding-left:20px;display:grid;gap:6px}
+ol li{max-width:70ch}
+code{font:500 13px var(--mono);color:var(--amber)}
+.note{color:var(--dim);font-size:13px;margin:12px 0 0}
+@media (max-width:520px){.strip{grid-template-columns:1fr;justify-items:center}.routing{width:100%}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Voice<span>Box</span></h1>
+    <p>Live voice changer. Talk into your mic and the person on your WhatsApp, Discord or Zoom call hears the new voice.</p>
+  </header>
+
+  <section class="strip" aria-label="Power and routing">
+    <button id="power" aria-pressed="false">Start</button>
+    <div class="routing">
+      <div>
+        <label for="mic">Microphone</label>
+        <select id="mic"><option>Press Start to list devices</option></select>
+      </div>
+      <div>
+        <label for="out">Send changed voice to</label>
+        <select id="out"><option>Press Start to list devices</option></select>
+      </div>
+      <div class="row">
+        <div class="meter" aria-hidden="true"><i id="lvl"></i></div>
+        <label class="toggle"><input type="checkbox" id="monitor"> Hear myself (use earphones)</label>
+      </div>
+      <div id="status" role="status">Off</div>
+    </div>
+  </section>
+
+  <section aria-label="Voices">
+    <h2>Voices</h2>
+    <div class="pads" id="pads"></div>
+  </section>
+
+  <section aria-label="Fine tune">
+    <h2>Fine tune</h2>
+    <div class="fine">
+      <div><label for="pitch">Pitch <output id="pitchV">0 st</output></label><input type="range" id="pitch" min="-12" max="12" step="0.5" value="0"></div>
+      <div><label for="tone">Tone <output id="toneV">0 dB</output></label><input type="range" id="tone" min="-12" max="12" step="1" value="0"></div>
+      <div><label for="vol">Output level <output id="volV">100%</output></label><input type="range" id="vol" min="0" max="200" step="5" value="100"></div>
+    </div>
+  </section>
+
+  <section aria-label="Setup">
+    <h2>Use it on a call (Windows, one-time setup)</h2>
+    <ol>
+      <li>Install the free <b>VB-CABLE</b> virtual audio driver from <code>vb-audio.com/Cable</code>, then restart the PC.</li>
+      <li>Open this file in Chrome, press <b>Start</b> and allow the microphone.</li>
+      <li>Under <b>Send changed voice to</b>, pick <code>CABLE Input</code>.</li>
+      <li>In WhatsApp Desktop (Settings → Audio / during a call → ⋯ → microphone), Discord (Voice &amp; Video → Input Device) or Zoom (Audio → Microphone), choose <code>CABLE Output</code> as the microphone.</li>
+      <li>Call someone and pick a voice. You can switch voices mid-call.</li>
+    </ol>
+    <p class="note">Wear earphones if you turn on "Hear myself", or the speakers will feed back into the mic. Keep this tab open during the call.</p>
+  </section>
+</main>
+
+<script>
+// Delay-line pitch shifter: two read taps sweep through a short window with Hann crossfades.
+function makeShifter(sr){
+  const N=8192, b=new Float32Array(N), W=Math.round(sr*.045); let w=0, p=0;
+  return (i, o, ratio) => {
+    for(let n=0;n<o.length;n++){
+      b[w]=i[n];
+      let y=0;
+      for(let k=0;k<2;k++){
+        const ph=(p+k*.5)%1, pos=w-(ph*W+1)+N, j=Math.floor(pos), f=pos-j;
+        y+=(b[j%N]*(1-f)+b[(j+1)%N]*f)*(.5-.5*Math.cos(2*Math.PI*ph));
+      }
+      o[n]=y;
+      p=((p+(1-ratio)/W)%1+1)%1;
+      w=(w+1)%N;
+    }
+  };
+}
+
+// Original presets only — no cloned real-person voices.
+const PRESETS = [
+  {id:'natural', name:'Natural',  hint:'Your own voice', st:0},
+  {id:'deep',    name:'Deep',     hint:'Low, heavy voice', st:-4, low:6, high:-3},
+  {id:'giant',   name:'Giant',    hint:'Huge and slow', st:-8, low:8, high:-6, verb:.25},
+  {id:'bright',  name:'Bright',   hint:'Higher, lighter voice', st:4, low:-4, high:3},
+  {id:'chipmunk',name:'Chipmunk', hint:'Tiny and squeaky', st:9, low:-8, high:2},
+  {id:'robot',   name:'Robot',    hint:'Metallic machine', st:0, ring:{base:0,depth:1,f:55}},
+  {id:'alien',   name:'Alien',    hint:'Wobbly and strange', st:3, ring:{base:.4,depth:.6,f:9}, verb:.2},
+  {id:'radio',   name:'Radio',    hint:'Old walkie-talkie', st:0, band:true, drive:true},
+  {id:'monster', name:'Monster',  hint:'Growling beast', st:-7, low:6, drive:true, verb:.15},
+  {id:'cave',    name:'Cave',     hint:'Big echoing room', st:0, verb:.5},
+];
+
+const $ = id => document.getElementById(id);
+let ctx, nodes, stream, cur = PRESETS[0], ratio = 1;
+const sendEl = new Audio(), monEl = new Audio();
+monEl.muted = true;
+
+function status(t, err){ $('status').textContent = t; $('status').className = err ? 'err' : ''; }
+
+function impulse(sec){
+  const len = ctx.sampleRate*sec, ir = ctx.createBuffer(2,len,ctx.sampleRate);
+  for(let c=0;c<2;c++){const d=ir.getChannelData(c);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,3)}
+  return ir;
+}
+function driveCurve(){const c=new Float32Array(1024);for(let i=0;i<1024;i++){const x=i/511.5-1;c[i]=Math.tanh(3*x)}return c}
+
+async function build(){
+  ctx = new AudioContext({latencyHint:'interactive'});
+  const n = {
+    hp: new BiquadFilterNode(ctx,{type:'highpass',frequency:80}),
+    // shortcut: ScriptProcessor is deprecated but needs no module file, which some viewers block; move to AudioWorklet if Chrome drops it
+    shift: ctx.createScriptProcessor(1024,1,1),
+    low: new BiquadFilterNode(ctx,{type:'lowshelf',frequency:250}),
+    high: new BiquadFilterNode(ctx,{type:'highshelf',frequency:3000}),
+    band: new BiquadFilterNode(ctx,{type:'allpass',frequency:1800,Q:.9}),
+    ring: new GainNode(ctx), osc: new OscillatorNode(ctx,{frequency:55}), oscAmt: new GainNode(ctx,{gain:0}),
+    drive: new WaveShaperNode(ctx), dry: new GainNode(ctx), verb: new ConvolverNode(ctx,{buffer:impulse(2.2)}), wet: new GainNode(ctx,{gain:0}),
+    out: new GainNode(ctx), meter: new AnalyserNode(ctx,{fftSize:512}), dest: ctx.createMediaStreamDestination(),
+  };
+  const run = makeShifter(ctx.sampleRate);
+  n.shift.onaudioprocess = e => run(e.inputBuffer.getChannelData(0), e.outputBuffer.getChannelData(0), ratio);
+  n.hp.connect(n.shift).connect(n.low).connect(n.high).connect(n.band).connect(n.ring).connect(n.drive);
+  n.osc.connect(n.oscAmt).connect(n.ring.gain); n.osc.start();
+  n.drive.connect(n.dry).connect(n.out);
+  n.drive.connect(n.verb).connect(n.wet).connect(n.out);
+  n.out.connect(n.dest); n.out.connect(n.meter);
+  n.out.connect(new GainNode(ctx,{gain:0})).connect(ctx.destination); // Chrome only runs ScriptProcessor when the graph reaches the speakers
+  nodes = n;
+  sendEl.srcObject = monEl.srcObject = n.dest.stream;
+}
+
+async function openMic(){
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  const id = $('mic').value;
+  stream = await navigator.mediaDevices.getUserMedia({audio:{
+    deviceId: id && id.length>10 ? {ideal:id} : undefined,
+    echoCancellation:false, noiseSuppression:true, autoGainControl:false }});
+  if(nodes.src) nodes.src.disconnect();
+  nodes.src = ctx.createMediaStreamSource(stream);
+  nodes.src.connect(nodes.hp);
+}
+
+async function listDevices(){
+  const ds = await navigator.mediaDevices.enumerateDevices();
+  const fill = (sel, kind, prefer) => {
+    const keep = sel.value;
+    sel.innerHTML = '';
+    ds.filter(d=>d.kind===kind && d.deviceId!=='communications').forEach(d=>{
+      const o = new Option(d.label || kind, d.deviceId); sel.add(o);
+    });
+    const pick = [...sel.options].find(o=>o.value===keep) || [...sel.options].find(o=>prefer(o.text));
+    if(pick) sel.value = pick.value;
+  };
+  fill($('mic'), 'audioinput', t=>!/cable/i.test(t));
+  fill($('out'), 'audiooutput', t=>/cable input/i.test(t));
+}
+
+async function route(){
+  const id = $('out').value;
+  try{
+    if(sendEl.setSinkId) await sendEl.setSinkId(id === 'default' ? '' : id);
+    await sendEl.play();
+    if(monEl.setSinkId) await monEl.setSinkId('');
+    await monEl.play();
+  }catch(e){ status('Could not use that output: '+e.message, true); return; }
+  const name = $('out').selectedOptions[0]?.text || 'speakers';
+  status(/cable/i.test(name) ? 'Live → '+name+'. Set your call app mic to "CABLE Output".' : 'Live → '+name+'. Install VB-CABLE to send this into a call.');
+}
+
+function apply(){
+  if(!nodes) return;
+  const p = cur, t = ctx.currentTime, st = p.st + Number($('pitch').value);
+  ratio = Math.pow(2, st/12);
+  nodes.low.gain.setTargetAtTime((p.low||0) + Number($('tone').value)*-.5, t, .03);
+  nodes.high.gain.setTargetAtTime((p.high||0) + Number($('tone').value)*.5, t, .03);
+  nodes.band.type = p.band ? 'bandpass' : 'allpass';
+  const r = p.ring || {base:1, depth:0, f:55};
+  nodes.ring.gain.setTargetAtTime(r.base, t, .03);
+  nodes.oscAmt.gain.setTargetAtTime(r.depth, t, .03);
+  nodes.osc.frequency.setTargetAtTime(r.f, t, .03);
+  nodes.drive.curve = p.drive ? driveCurve() : null;
+  nodes.wet.gain.setTargetAtTime(p.verb||0, t, .05);
+  nodes.dry.gain.setTargetAtTime(1-(p.verb||0)*.5, t, .05);
+  nodes.out.gain.setTargetAtTime(Number($('vol').value)/100 * (p.band ? 2.5 : 1), t, .03);
+}
+
+function meter(){
+  if(!nodes) return;
+  const a = new Float32Array(nodes.meter.fftSize);
+  (function tick(){
+    if(!nodes) return;
+    nodes.meter.getFloatTimeDomainData(a);
+    let s=0; for(const v of a) s+=v*v;
+    $('lvl').style.width = Math.min(100, Math.sqrt(s/a.length)*400)+'%';
+    requestAnimationFrame(tick);
+  })();
+}
+
+async function start(){
+  try{
+    status('Starting…');
+    await build();
+    await openMic();
+    await listDevices();
+    await openMic();      // reopen with the chosen (non-cable) mic now labels are known
+    apply(); await route(); meter();
+    $('power').textContent = 'Stop'; $('power').setAttribute('aria-pressed','true');
+  }catch(e){
+    status(e.name==='NotAllowedError' ? 'Microphone blocked. If this is a file preview, download the file and open it in Chrome; in Chrome, click the lock icon and allow the microphone.' : 'Could not start: '+(e.message||e.name)+'. Open this file directly in Chrome on a computer.', true);
+    await stop();
+  }
+}
+async function stop(){
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  sendEl.pause(); monEl.pause();
+  if(ctx) await ctx.close();
+  ctx = nodes = stream = null;
+  $('lvl').style.width = '0';
+  $('power').textContent = 'Start'; $('power').setAttribute('aria-pressed','false');
+  if(!$('status').classList.contains('err')) status('Off');
+}
+
+// UI
+PRESETS.forEach(p=>{
+  const b = document.createElement('button');
+  b.className='pad'; b.type='button'; b.setAttribute('aria-pressed', p===cur);
+  b.innerHTML = `<b>${p.name}</b><small>${p.hint}</small>`;
+  b.onclick = ()=>{ cur=p; document.querySelectorAll('.pad').forEach(x=>x.setAttribute('aria-pressed', x===b)); apply(); };
+  $('pads').append(b);
+});
+$('power').onclick = ()=> ctx ? stop() : start();
+$('mic').onchange = ()=> ctx && openMic().catch(e=>status(e.message,true));
+$('out').onchange = ()=> ctx && route();
+$('monitor').onchange = e => monEl.muted = !e.target.checked;
+[['pitch','pitchV',v=>(v>0?'+':'')+v+' st'],['tone','toneV',v=>(v>0?'+':'')+v+' dB'],['vol','volV',v=>v+'%']].forEach(([i,o,f])=>{
+  $(i).oninput = ()=>{ $(o).textContent = f($(i).value); apply(); };
+});
+if(!navigator.mediaDevices?.getUserMedia) status('This browser cannot use the microphone. Open the file in Chrome or Edge.', true);
+</script>
+</body>
+</html>
